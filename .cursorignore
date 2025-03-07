@@ -1,0 +1,27 @@
+# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
+./bin
+./env
+./venv
+./__pycache__
+./__init__.py
+./__init__.pyc
+./__pycache__
+./__pycache__
+./__pycache__
+./__pycache__
+./__pycache__
+./__pycache__
+./share
+./lib
+./lib64
+./libxcb.so
+./libxcb.so.1
+./libxcb.so.1.1.0
+./libxcb.so.1.1.0.orig
+./libxcb.so.1.1.0.orig.dpkg-dist
+./include
+./etc
+./doc
+./build
+./bin
+./bin
