@@ -1,14 +1,15 @@
 import numpy as np
-from sklearn.cluster import KMeans
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.mixture import GaussianMixture
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-import tensorflow as tf
+from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+from minisom import MiniSom
+from scipy.spatial.distance import cdist
+import joblib
+import os
 
 class ClusteringModels:
     def __init__(self, n_clusters=2, random_state=42):
-        """Initialize clustering models.
+        """Initialize clustering models for cardiovascular risk prediction.
         
         Args:
             n_clusters (int): Number of clusters (2 for binary risk classification)
@@ -16,127 +17,237 @@ class ClusteringModels:
         """
         self.n_clusters = n_clusters
         self.random_state = random_state
+        np.random.seed(random_state)
         
-        # Initialize models
-        self.kmeans = KMeans(n_clusters=n_clusters, random_state=random_state)
-        self.knn = KNeighborsClassifier(n_neighbors=5)
-        self.gmm = GaussianMixture(n_components=n_clusters, random_state=random_state)
-        self.som = None  # Will be initialized during training
+        # Initialize clustering models
+        self.kmeans = KMeans(
+            n_clusters=n_clusters,
+            random_state=random_state
+        )
         
-    def train_kmeans(self, X):
-        """Train K-Means clustering model.
+        self.gmm = GaussianMixture(
+            n_components=n_clusters,
+            random_state=random_state
+        )
         
-        Args:
-            X (np.ndarray): Training data
-            
-        Returns:
-            np.ndarray: Cluster assignments
-        """
-        return self.kmeans.fit_predict(X)
-    
-    def train_knn(self, X, y):
-        """Train K-Nearest Neighbors model.
+        self.hierarchical = AgglomerativeClustering(
+            n_clusters=n_clusters,
+            linkage='ward'
+        )
+        self.hierarchical_centroids = None  # Will store centroids for prediction
         
-        Args:
-            X (np.ndarray): Training data
-            y (np.ndarray): Training labels (from another clustering)
-            
-        Returns:
-            np.ndarray: Cluster assignments
-        """
-        self.knn.fit(X, y)
-        return self.knn.predict(X)
-    
-    def train_gmm(self, X):
-        """Train Gaussian Mixture Model.
+        # Initialize SOM with a 2x2 grid for binary clustering
+        self.som = None
         
-        Args:
-            X (np.ndarray): Training data
-            
-        Returns:
-            np.ndarray: Cluster assignments
-        """
-        return self.gmm.fit_predict(X)
-    
+        # Store cluster risk mappings
+        self.risk_mappings = {
+            'kmeans': None,
+            'gmm': None,
+            'hierarchical': None,
+            'som': None
+        }
+        
+        # Store evaluation metrics
+        self.metrics = {}
+
     def create_som(self, input_dim):
-        """Create and compile Self-Organizing Map model.
-        
-        Args:
-            input_dim (int): Number of input features
-        """
-        self.som = Sequential([
-            Dense(100, activation='relu', input_shape=(input_dim,)),
-            Dense(50, activation='relu'),
-            Dense(self.n_clusters, activation='softmax')
-        ])
-        
-        self.som.compile(optimizer='adam',
-                        loss='sparse_categorical_crossentropy',
-                        metrics=['accuracy'])
-    
-    def train_som(self, X, y, epochs=50, batch_size=32):
-        """Train Self-Organizing Map model.
+        """Create Self-Organizing Map."""
+        self.som = MiniSom(
+            2, 2, input_dim,
+            sigma=1.0,
+            learning_rate=0.5,
+            random_seed=self.random_state
+        )
+
+    def fit(self, X):
+        """Fit all clustering models and compute evaluation metrics.
         
         Args:
             X (np.ndarray): Training data
-            y (np.ndarray): Training labels (from another clustering)
-            epochs (int): Number of training epochs
-            batch_size (int): Batch size for training
-            
-        Returns:
-            np.ndarray: Cluster assignments
         """
+        # Train K-Means
+        kmeans_labels = self.kmeans.fit_predict(X)
+        
+        # Train GMM
+        gmm_labels = self.gmm.fit_predict(X)
+        
+        # Train Hierarchical Clustering
+        hierarchical_labels = self.hierarchical.fit_predict(X)
+        # Store centroids for prediction
+        self._store_hierarchical_centroids(X, hierarchical_labels)
+        
+        # Train SOM
         if self.som is None:
             self.create_som(X.shape[1])
+        som_labels = self._train_som(X)
+        
+        # Compute and store evaluation metrics
+        self._compute_metrics(X, {
+            'kmeans': kmeans_labels,
+            'gmm': gmm_labels,
+            'hierarchical': hierarchical_labels,
+            'som': som_labels
+        })
+        
+        # Map clusters to risk labels
+        self._map_risk_labels(X, {
+            'kmeans': kmeans_labels,
+            'gmm': gmm_labels,
+            'hierarchical': hierarchical_labels,
+            'som': som_labels
+        })
+
+    def _store_hierarchical_centroids(self, X, labels):
+        """Store centroids for hierarchical clustering prediction."""
+        self.hierarchical_centroids = np.array([
+            np.mean(X[labels == i], axis=0)
+            for i in range(self.n_clusters)
+        ])
+
+    def _train_som(self, X, epochs=1000):
+        """Train SOM and return cluster assignments."""
+        self.som.random_weights_init(X)
+        self.som.train(X, epochs, verbose=False)
+        
+        # Get cluster assignments
+        som_labels = np.array([
+            self.som.winner(x)[0] * 2 + self.som.winner(x)[1]
+            for x in X
+        ])
+        
+        return som_labels
+
+    def _compute_metrics(self, X, labels_dict):
+        """Compute clustering evaluation metrics."""
+        for model_name, labels in labels_dict.items():
+            self.metrics[model_name] = {
+                'silhouette': silhouette_score(X, labels),
+                'davies_bouldin': davies_bouldin_score(X, labels),
+                'calinski_harabasz': calinski_harabasz_score(X, labels)
+            }
+
+    def _map_risk_labels(self, X, labels_dict):
+        """Map clusters to risk labels based on medical analysis."""
+        for model_name, labels in labels_dict.items():
+            # For each cluster, compute the mean distance from center
+            center = np.mean(X, axis=0)
+            cluster_centers = {
+                c: np.mean(X[labels == c], axis=0)
+                for c in np.unique(labels)
+            }
             
-        self.som.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=0)
-        predictions = self.som.predict(X)
-        return np.argmax(predictions, axis=1)
-    
-    def predict_all(self, X):
-        """Get predictions from all trained models.
+            # Compute distances from overall center
+            cluster_distances = {
+                c: np.linalg.norm(cent - center)
+                for c, cent in cluster_centers.items()
+            }
+            
+            # Map to risk labels: further clusters are considered higher risk
+            self.risk_mappings[model_name] = {
+                c: int(d > np.median(list(cluster_distances.values())))
+                for c, d in cluster_distances.items()
+            }
+
+    def predict(self, X):
+        """Predict risk labels using all models.
         
         Args:
             X (np.ndarray): Data to predict
             
         Returns:
-            dict: Dictionary containing predictions from each model
+            dict: Predictions from each model mapped to risk labels
         """
-        predictions = {
-            'kmeans': self.kmeans.predict(X),
-            'knn': self.knn.predict(X),
-            'gmm': self.gmm.predict(X),
-            'som': np.argmax(self.som.predict(X), axis=1) if self.som else None
-        }
+        predictions = {}
+        
+        # K-Means prediction
+        kmeans_clusters = self.kmeans.predict(X)
+        predictions['kmeans'] = np.array([
+            self.risk_mappings['kmeans'][c] for c in kmeans_clusters
+        ])
+        
+        # GMM prediction
+        gmm_clusters = self.gmm.predict(X)
+        predictions['gmm'] = np.array([
+            self.risk_mappings['gmm'][c] for c in gmm_clusters
+        ])
+        
+        # Hierarchical prediction
+        hierarchical_clusters = self._predict_hierarchical(X)
+        predictions['hierarchical'] = np.array([
+            self.risk_mappings['hierarchical'][c] for c in hierarchical_clusters
+        ])
+        
+        # SOM prediction
+        if self.som is not None:
+            som_clusters = np.array([
+                self.som.winner(x)[0] * 2 + self.som.winner(x)[1]
+                for x in X
+            ])
+            predictions['som'] = np.array([
+                self.risk_mappings['som'][c] for c in som_clusters
+            ])
+        else:
+            predictions['som'] = np.zeros(len(X))  # Default prediction if SOM not trained
+        
         return predictions
-    
+
+    def _predict_hierarchical(self, X):
+        """Predict clusters for hierarchical clustering using stored centroids."""
+        distances = cdist(X, self.hierarchical_centroids)
+        return np.argmin(distances, axis=1)
+
     def majority_vote(self, predictions):
-        """Perform majority voting on predictions from all models.
+        """Perform majority voting with bias towards high risk.
         
         Args:
-            predictions (dict): Dictionary containing predictions from each model
+            predictions (dict): Predictions from each model
             
         Returns:
-            np.ndarray: Final predictions based on majority voting. In case of ties,
-            classifies as high risk (class 1).
+            np.ndarray: Final risk predictions
         """
-        # Stack predictions from all models
+        # Stack all predictions
         pred_array = np.vstack([
-            pred for pred in predictions.values() if pred is not None
+            pred for pred in predictions.values()
         ]).T
         
-        # Custom voting function that returns 1 (high risk) in case of ties
-        def vote_with_tie_handling(x):
-            counts = np.bincount(x)
-            if len(counts) > 1 and counts[0] == counts[1]:
-                return 1  # Return high risk in case of tie
-            return counts.argmax()
+        # Count votes for each class
+        votes = np.sum(pred_array, axis=1)
+        n_models = pred_array.shape[1]
         
-        # Get majority vote for each sample
-        final_predictions = np.apply_along_axis(
-            vote_with_tie_handling,
-            axis=1, 
-            arr=pred_array
-        )
+        # If votes are tied or majority is for high risk (1),
+        # classify as high risk
+        return (votes >= n_models/2).astype(int)
+
+    def save_models(self, directory):
+        """Save trained models and mappings."""
+        os.makedirs(directory, exist_ok=True)
         
-        return final_predictions 
+        # Save sklearn models
+        joblib.dump(self.kmeans, os.path.join(directory, 'kmeans.pkl'))
+        joblib.dump(self.gmm, os.path.join(directory, 'gmm.pkl'))
+        joblib.dump(self.hierarchical, os.path.join(directory, 'hierarchical.pkl'))
+        
+        # Save SOM weights
+        if self.som is not None:
+            self.som.save(os.path.join(directory, 'som.pkl'))
+        
+        # Save risk mappings and metrics
+        np.save(os.path.join(directory, 'risk_mappings.npy'), self.risk_mappings)
+        np.save(os.path.join(directory, 'metrics.npy'), self.metrics)
+
+    def load_models(self, directory):
+        """Load trained models and mappings."""
+        self.kmeans = joblib.load(os.path.join(directory, 'kmeans.pkl'))
+        self.gmm = joblib.load(os.path.join(directory, 'gmm.pkl'))
+        self.hierarchical = joblib.load(os.path.join(directory, 'hierarchical.pkl'))
+        
+        # Load SOM if it exists
+        som_path = os.path.join(directory, 'som.pkl')
+        if os.path.exists(som_path):
+            self.som = MiniSom.load(som_path)
+        
+        # Load risk mappings and metrics
+        self.risk_mappings = np.load(os.path.join(directory, 'risk_mappings.npy'),
+                                   allow_pickle=True).item()
+        self.metrics = np.load(os.path.join(directory, 'metrics.npy'),
+                             allow_pickle=True).item() 

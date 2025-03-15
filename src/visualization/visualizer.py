@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
 
@@ -46,73 +48,193 @@ class Visualizer:
         plt.colorbar(scatter)
         return fig
     
-    def plot_vital_signs(self, data):
-        """Create an interactive plot of vital signs.
+    def plot_ecg_signals(self, data):
+        """Plot ECG signals (Leads II, V, and AVR).
         
         Args:
-            data (pd.DataFrame): DataFrame containing vital signs
+            data (pd.DataFrame): DataFrame containing ECG signal data
             
         Returns:
-            plotly.graph_objects.Figure: Interactive plot
+            go.Figure: Plotly figure object containing ECG plots
         """
-        fig = go.Figure()
+        # Create figure with secondary y-axis
+        fig = make_subplots(rows=3, cols=1,
+                          subplot_titles=('Lead II', 'Lead V', 'Lead AVR'))
         
-        # Add traces for HR and SpO2
-        fig.add_trace(go.Scatter(x=data['Time [s]'], y=data['HR'],
-                                mode='lines', name='Heart Rate'))
-        fig.add_trace(go.Scatter(x=data['Time [s]'], y=data['SpO2'],
-                                mode='lines', name='SpO2'))
+        # Add traces for each ECG lead
+        fig.add_trace(
+            go.Scatter(y=data['II'].values[:1000], name="Lead II"),
+            row=1, col=1
+        )
+        
+        fig.add_trace(
+            go.Scatter(y=data['V'].values[:1000], name="Lead V"),
+            row=2, col=1
+        )
+        
+        fig.add_trace(
+            go.Scatter(y=data['AVR'].values[:1000], name="Lead AVR"),
+            row=3, col=1
+        )
         
         # Update layout
         fig.update_layout(
-            title='Vital Signs Monitoring',
-            xaxis_title='Time (s)',
-            yaxis_title='Value',
-            hovermode='x unified'
+            height=800,
+            title_text="ECG Signal Visualization",
+            showlegend=True
+        )
+        
+        return fig
+    
+    def plot_ppg_signals(self, data):
+        """Plot PPG signals.
+        
+        Args:
+            data (pd.DataFrame): DataFrame containing PPG signal data
+            
+        Returns:
+            go.Figure: Plotly figure object containing PPG plot
+        """
+        fig = go.Figure()
+        
+        fig.add_trace(
+            go.Scatter(y=data['PLETH'].values[:1000], name="PPG")
+        )
+        
+        fig.update_layout(
+            title="PPG Signal Visualization",
+            yaxis_title="Amplitude",
+            xaxis_title="Time",
+            showlegend=True
+        )
+        
+        return fig
+    
+    def plot_vital_signs(self, data):
+        """Plot vital signs (HR, PULSE, RESP, SpO2).
+        
+        Args:
+            data (pd.DataFrame): DataFrame containing vital signs data
+            
+        Returns:
+            go.Figure: Plotly figure object containing vital signs plots
+        """
+        fig = make_subplots(rows=2, cols=2,
+                          subplot_titles=('Heart Rate', 'Pulse', 
+                                        'Respiration', 'SpO2'))
+        
+        # Heart Rate
+        fig.add_trace(
+            go.Scatter(y=data['HR'].values[:1000], name="HR"),
+            row=1, col=1
+        )
+        
+        # Pulse
+        fig.add_trace(
+            go.Scatter(y=data['PULSE'].values[:1000], name="Pulse"),
+            row=1, col=2
+        )
+        
+        # Respiration
+        fig.add_trace(
+            go.Scatter(y=data['RESP_x'].values[:1000], name="RESP"),
+            row=2, col=1
+        )
+        
+        # SpO2
+        fig.add_trace(
+            go.Scatter(y=data['SpO2'].values[:1000], name="SpO2"),
+            row=2, col=2
+        )
+        
+        fig.update_layout(
+            height=800,
+            title_text="Vital Signs Visualization",
+            showlegend=True
         )
         
         return fig
     
     def plot_risk_distribution(self, predictions):
-        """Plot the distribution of risk predictions.
+        """Plot distribution of risk predictions.
         
         Args:
-            predictions (np.ndarray): Array of risk predictions (0 or 1)
+            predictions (np.ndarray): Array of risk predictions
+            
+        Returns:
+            go.Figure: Plotly figure with risk distribution
         """
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.countplot(x=predictions, ax=ax)
-        ax.set_xlabel('Risk Level')
-        ax.set_ylabel('Count')
-        ax.set_title('Distribution of Risk Predictions')
-        ax.set_xticklabels(['Low Risk', 'High Risk'])
+        fig = go.Figure()
+        
+        # Count risk categories
+        unique, counts = np.unique(predictions, return_counts=True)
+        labels = ['Low Risk' if x == 0 else 'High Risk' for x in unique]
+        
+        fig.add_trace(
+            go.Bar(
+                x=labels,
+                y=counts,
+                marker_color=['green', 'red']
+            )
+        )
+        
+        fig.update_layout(
+            title="Risk Distribution",
+            xaxis_title="Risk Category",
+            yaxis_title="Count",
+            showlegend=False
+        )
+        
         return fig
-        
-    def plot_new_point_in_context(self, X, labels, new_point, feature_names):
-        """Plot a new data point in the context of existing clusters.
+    
+    def plot_new_point_in_context(self, X_train, labels, new_point, feature_names):
+        """Plot new data point in context of training data.
         
         Args:
-            X (np.ndarray): Existing data points
-            labels (np.ndarray): Cluster labels for existing points
+            X_train (np.ndarray): Training data
+            labels (np.ndarray): Cluster labels for training data
             new_point (np.ndarray): New data point to visualize
-            feature_names (list): Names of the features to plot
+            feature_names (list): Names of features being plotted
+            
+        Returns:
+            go.Figure: Plotly figure with scatter plot
         """
-        fig, ax = plt.subplots(figsize=(10, 8))
+        fig = go.Figure()
         
-        # Plot existing points
-        scatter = ax.scatter(X[:, 0], X[:, 1], c=labels, cmap='viridis', 
-                           alpha=0.6, label='Existing Points')
+        # Plot training data
+        fig.add_trace(
+            go.Scatter(
+                x=X_train[:, 0],
+                y=X_train[:, 1],
+                mode='markers',
+                marker=dict(
+                    color=labels,
+                    colorscale='Viridis',
+                ),
+                name='Training Data'
+            )
+        )
         
         # Plot new point
-        ax.scatter(new_point[0], new_point[1], color='red', marker='*', 
-                  s=200, label='New Patient')
+        fig.add_trace(
+            go.Scatter(
+                x=[new_point[0]],
+                y=[new_point[1]],
+                mode='markers',
+                marker=dict(
+                    color='red',
+                    size=15,
+                    symbol='star'
+                ),
+                name='New Patient'
+            )
+        )
         
-        # Add labels and title
-        ax.set_xlabel(feature_names[0])
-        ax.set_ylabel(feature_names[1])
-        ax.set_title('New Patient in Feature Space')
-        ax.legend()
-        
-        # Add colorbar
-        plt.colorbar(scatter, label='Risk Level')
+        fig.update_layout(
+            title="New Patient Data in Context",
+            xaxis_title=feature_names[0],
+            yaxis_title=feature_names[1],
+            showlegend=True
+        )
         
         return fig 

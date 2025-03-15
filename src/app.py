@@ -4,6 +4,8 @@ import numpy as np
 from utils.data_preprocessor import DataPreprocessor
 from models.clustering import ClusteringModels
 from visualization.visualizer import Visualizer
+import plotly.graph_objects as go
+import plotly.express as px
 import os
 
 @st.cache_resource
@@ -13,8 +15,7 @@ def get_data():
     preprocessor = DataPreprocessor(data_path)
     data = preprocessor.load_data()
     X, feature_names = preprocessor.preprocess_signals()
-    X_train, X_test = preprocessor.split_data(X)
-    return data, X_train, X_test, feature_names, preprocessor
+    return data, X, feature_names, preprocessor
 
 def create_input_form():
     """Create a form for inputting new patient data."""
@@ -47,6 +48,44 @@ def create_input_form():
             
         return np.array([[ii, v, avr, pleth, hr, pulse, resp, spo2]])
 
+def display_model_metrics(clustering_models):
+    """Display clustering evaluation metrics."""
+    st.subheader("Model Evaluation Metrics")
+    
+    metrics_df = pd.DataFrame()
+    for model_name, metrics in clustering_models.metrics.items():
+        metrics_df[model_name] = pd.Series(metrics)
+    
+    st.table(metrics_df.round(3))
+
+def plot_cluster_distributions(clustering_models, X, feature_names):
+    """Plot cluster distributions for each model."""
+    st.subheader("Cluster Distributions")
+    
+    # Get predictions for all models at once
+    predictions = clustering_models.predict(X)
+    
+    for model_name in ['kmeans', 'gmm', 'hierarchical', 'som']:
+        st.write(f"**{model_name.upper()} Clustering**")
+        
+        # Create DataFrame for plotting
+        plot_df = pd.DataFrame({
+            'x': X[:, 0],
+            'y': X[:, 1],
+            'cluster': predictions[model_name].astype(str)
+        })
+        
+        # Create scatter plot using first two features
+        fig = px.scatter(
+            plot_df,
+            x='x',
+            y='y',
+            color='cluster',
+            labels={'x': feature_names[0], 'y': feature_names[1]},
+            title=f"{model_name.upper()} Clustering Results"
+        )
+        st.plotly_chart(fig)
+
 def main():
     st.title('Cardiovascular Risk Prediction System')
     st.write('Analyzing ECG and PPG signals for cardiovascular risk assessment')
@@ -61,25 +100,36 @@ def main():
     visualizer = Visualizer()
     
     # Load and preprocess data (cached)
-    data, X_train, X_test, feature_names, preprocessor = get_data()
+    data, X, feature_names, preprocessor = get_data()
     
     # Training section
     st.header('Model Training')
-    if st.button('Train Models'):
-        with st.spinner('Training clustering models...'):
-            try:
-                # Train initial clustering with K-means
-                kmeans_labels = st.session_state.clustering.train_kmeans(X_train)
-                
-                # Train other models using K-means labels
-                st.session_state.clustering.train_knn(X_train, kmeans_labels)
-                st.session_state.clustering.train_gmm(X_train)
-                st.session_state.clustering.train_som(X_train, kmeans_labels)
-                
-                st.session_state.models_trained = True
-                st.success('Models trained successfully!')
-            except Exception as e:
-                st.error(f'Error during training: {str(e)}')
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button('Train Models'):
+            with st.spinner('Training clustering models...'):
+                try:
+                    st.session_state.clustering.fit(X)
+                    st.session_state.models_trained = True
+                    st.success('Models trained successfully!')
+                except Exception as e:
+                    st.error(f'Error during training: {str(e)}')
+    
+    with col2:
+        if st.button('Save Models'):
+            if st.session_state.models_trained:
+                try:
+                    st.session_state.clustering.save_models('models')
+                    st.success('Models saved successfully!')
+                except Exception as e:
+                    st.error(f'Error saving models: {str(e)}')
+            else:
+                st.error('Please train the models first.')
+    
+    # Display model metrics if models are trained
+    if st.session_state.models_trained:
+        display_model_metrics(st.session_state.clustering)
+        plot_cluster_distributions(st.session_state.clustering, X, feature_names)
     
     # New Patient Classification Section
     st.header('New Patient Classification')
@@ -92,11 +142,11 @@ def main():
         if st.button('Classify Patient'):
             with st.spinner('Analyzing patient data...'):
                 try:
-                    # Preprocess the new data point using the same scaler
+                    # Preprocess the new data point
                     new_data_scaled = preprocessor.scaler.transform(new_data)
                     
                     # Get predictions from all models
-                    predictions = st.session_state.clustering.predict_all(new_data_scaled)
+                    predictions = st.session_state.clustering.predict(new_data_scaled)
                     
                     # Get final prediction using majority voting
                     final_prediction = st.session_state.clustering.majority_vote(predictions)
@@ -110,83 +160,39 @@ def main():
                     st.markdown(f"### Overall Risk Assessment: {risk_color} {risk_status}")
                     
                     # Show individual model predictions
-                    st.write("Individual Model Predictions:")
-                    for model_name, preds in predictions.items():
-                        if preds is not None:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("Individual Model Predictions:")
+                        for model_name, preds in predictions.items():
                             model_prediction = "High Risk" if preds[0] == 1 else "Low Risk"
-                            st.write(f"- {model_name}: {model_prediction}")
-                            
-                    # Add visualization of the new point in feature space
-                    if st.checkbox('Show Feature Space Visualization'):
-                        fig = visualizer.plot_new_point_in_context(
-                            X_train, 
-                            st.session_state.clustering.kmeans.labels_,
-                            new_data_scaled[0],
-                            feature_names[:2]  # Using first two features
-                        )
-                        st.pyplot(fig)
-                        
+                            st.write(f"- {model_name.upper()}: {model_prediction}")
+                    
+                    # Show prediction confidence
+                    with col2:
+                        n_high_risk = sum(1 for preds in predictions.values() if preds[0] == 1)
+                        confidence = max(n_high_risk, len(predictions) - n_high_risk) / len(predictions)
+                        st.metric("Prediction Confidence", f"{confidence*100:.1f}%")
+                    
                 except Exception as e:
                     st.error(f'Error during classification: {str(e)}')
     
-    # Visualization section
+    # Signal Visualization section
     st.header('Signal Visualization')
-    st.subheader('ECG and PPG Signals')
-    signals_fig = visualizer.plot_signals(data)
-    st.pyplot(signals_fig)
     
-    st.subheader('Vital Signs')
-    vital_signs_fig = visualizer.plot_vital_signs(data)
-    st.plotly_chart(vital_signs_fig)
+    # Add tabs for different visualizations
+    tab1, tab2, tab3 = st.tabs(["ECG Signals", "PPG Signals", "Vital Signs"])
     
-    # Risk Assessment section
-    st.header('Risk Assessment')
-    if st.button('Analyze Risk'):
-        if not st.session_state.models_trained:
-            st.error('Please train the models first by clicking the "Train Models" button above.')
-        else:
-            with st.spinner('Analyzing risk...'):
-                try:
-                    # Get predictions from all models
-                    predictions = st.session_state.clustering.predict_all(X_test)
-                    
-                    # Perform majority voting
-                    final_predictions = st.session_state.clustering.majority_vote(predictions)
-                    
-                    # Plot risk distribution
-                    risk_fig = visualizer.plot_risk_distribution(final_predictions)
-                    st.pyplot(risk_fig)
-                    
-                    # Display summary statistics
-                    st.subheader('Risk Assessment Summary')
-                    total_samples = len(final_predictions)
-                    high_risk = np.sum(final_predictions)
-                    low_risk = total_samples - high_risk
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric('High Risk Patients', f'{high_risk} ({high_risk/total_samples*100:.1f}%)')
-                    with col2:
-                        st.metric('Low Risk Patients', f'{low_risk} ({low_risk/total_samples*100:.1f}%)')
-                except Exception as e:
-                    st.error(f'Error during prediction: {str(e)}')
+    with tab1:
+        ecg_fig = visualizer.plot_ecg_signals(data)
+        st.plotly_chart(ecg_fig)
     
-    # Model comparison section
-    st.header('Model Comparison')
-    show_predictions = st.checkbox('Show Model Predictions')
-    if show_predictions:
-        if not st.session_state.models_trained:
-            st.error('Please train the models first by clicking the "Train Models" button above.')
-        else:
-            try:
-                predictions = st.session_state.clustering.predict_all(X_test)
-                for model_name, preds in predictions.items():
-                    if preds is not None:
-                        st.write(f'{model_name} predictions:')
-                        risk_fig = visualizer.plot_risk_distribution(preds)
-                        st.pyplot(risk_fig)
-            except Exception as e:
-                st.error(f'Error showing model predictions: {str(e)}')
+    with tab2:
+        ppg_fig = visualizer.plot_ppg_signals(data)
+        st.plotly_chart(ppg_fig)
+    
+    with tab3:
+        vital_signs_fig = visualizer.plot_vital_signs(data)
+        st.plotly_chart(vital_signs_fig)
 
 if __name__ == '__main__':
     main() 

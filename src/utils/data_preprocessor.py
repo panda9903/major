@@ -18,7 +18,6 @@ class DataPreprocessor:
         # Read CSV and strip whitespace from column names
         self.data = pd.read_csv(self.data_path)
         self.data.columns = self.data.columns.str.strip()
-        print(self.data.head())
         return self.data
     
     def preprocess_signals(self):
