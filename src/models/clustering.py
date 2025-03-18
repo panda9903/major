@@ -8,7 +8,7 @@ from minisom import MiniSom
 from scipy.spatial.distance import cdist
 import joblib
 import os
-from ..config.model_scores import PREDEFINED_SCORES
+from config.model_scores import PREDEFINED_SCORES
 
 class ClusteringModels:
     def __init__(self, n_clusters=2, random_state=42, test_size=0.3):
