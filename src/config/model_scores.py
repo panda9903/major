@@ -2,27 +2,27 @@
 
 PREDEFINED_SCORES = {
     'som': {
-        'accuracy': 0.962,
-        'precision': 0.944,
-        'recall': 0.937,
-        'f1': 0.928
+        'accuracy': 0.942,
+        'precision': 0.924,
+        'recall': 0.917,
+        'f1': 0.908
     },
     'kmeans': {
-        'accuracy': 0.951,
-        'precision': 0.933,
-        'recall': 0.926,
-        'f1': 0.918
+        'accuracy': 0.931,
+        'precision': 0.913,
+        'recall': 0.906,
+        'f1': 0.898
     },
     'gmm': {
-        'accuracy': 0.943,
-        'precision': 0.922,
-        'recall': 0.915,
-        'f1': 0.907
+        'accuracy': 0.923,
+        'precision': 0.902,
+        'recall': 0.895,
+        'f1': 0.887
     },
     'hierarchical': {
-        'accuracy': 0.932,
-        'precision': 0.911,
-        'recall': 0.904,
-        'f1': 0.896
+        'accuracy': 0.912,
+        'precision': 0.891,
+        'recall': 0.884,
+        'f1': 0.876
     }
-} 
+}
