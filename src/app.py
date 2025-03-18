@@ -7,11 +7,12 @@ from visualization.visualizer import Visualizer
 import plotly.graph_objects as go
 import plotly.express as px
 import os
+from sklearn.cluster import KMeans
 
 @st.cache_resource
 def get_data():
     """Load and preprocess data once, then cache it."""
-    data_path = 'merged_bidmc_1s.csv'
+    data_path = '../merged_bidmc_1s.csv'
     preprocessor = DataPreprocessor(data_path)
     data = preprocessor.load_data()
     X, feature_names = preprocessor.preprocess_signals()
@@ -52,39 +53,62 @@ def display_model_metrics(clustering_models):
     """Display clustering evaluation metrics."""
     st.subheader("Model Evaluation Metrics")
     
+    # Display test set metrics
     metrics_df = pd.DataFrame()
-    for model_name, metrics in clustering_models.metrics.items():
-        metrics_df[model_name] = pd.Series(metrics)
+    for model_name, model_metrics in clustering_models.metrics.items():
+        metrics_df[model_name] = pd.Series(model_metrics)
     
+    st.write("Test Set Performance:")
     st.table(metrics_df.round(3))
+    
+    # Display best model information
+    st.write(f"**Best Model Selected:** {clustering_models.best_model}")
 
 def plot_cluster_distributions(clustering_models, X, feature_names):
     """Plot cluster distributions for each model."""
     st.subheader("Cluster Distributions")
     
-    # Get predictions for all models at once
+    # Get predictions for all models
     predictions = clustering_models.predict(X)
+    best_model_labels = clustering_models._get_labels_from_best_model(X)
     
+    # First plot the best model
+    st.write(f"**Best Model ({clustering_models.best_model.upper()}) Clustering**")
+    plot_df = pd.DataFrame({
+        'x': X[:, 0],
+        'y': X[:, 1],
+        'cluster': best_model_labels.astype(str)
+    })
+    
+    fig = px.scatter(
+        plot_df,
+        x='x',
+        y='y',
+        color='cluster',
+        labels={'x': feature_names[0], 'y': feature_names[1]},
+        title=f"{clustering_models.best_model.upper()} Clustering Results (Best Model)"
+    )
+    st.plotly_chart(fig)
+    
+    # Plot other models
     for model_name in ['kmeans', 'gmm', 'hierarchical', 'som']:
-        st.write(f"**{model_name.upper()} Clustering**")
-        
-        # Create DataFrame for plotting
-        plot_df = pd.DataFrame({
-            'x': X[:, 0],
-            'y': X[:, 1],
-            'cluster': predictions[model_name].astype(str)
-        })
-        
-        # Create scatter plot using first two features
-        fig = px.scatter(
-            plot_df,
-            x='x',
-            y='y',
-            color='cluster',
-            labels={'x': feature_names[0], 'y': feature_names[1]},
-            title=f"{model_name.upper()} Clustering Results"
-        )
-        st.plotly_chart(fig)
+        if model_name != clustering_models.best_model:
+            st.write(f"**{model_name.upper()} Clustering**")
+            plot_df = pd.DataFrame({
+                'x': X[:, 0],
+                'y': X[:, 1],
+                'cluster': predictions[model_name].astype(str)
+            })
+            
+            fig = px.scatter(
+                plot_df,
+                x='x',
+                y='y',
+                color='cluster',
+                labels={'x': feature_names[0], 'y': feature_names[1]},
+                title=f"{model_name.upper()} Clustering Results"
+            )
+            st.plotly_chart(fig)
 
 def main():
     st.title('Cardiovascular Risk Prediction System')
@@ -105,10 +129,23 @@ def main():
     # Training section
     st.header('Model Training')
     col1, col2 = st.columns(2)
+    
     with col1:
+        train_params = st.container()
+        test_size = train_params.slider(
+            "Test Set Size",
+            min_value=0.1,
+            max_value=0.5,
+            value=0.3,
+            step=0.1,
+            help="Proportion of data to use for testing"
+        )
+        
         if st.button('Train Models'):
             with st.spinner('Training clustering models...'):
                 try:
+                    # Update test_size in clustering models
+                    st.session_state.clustering.test_size = test_size
                     st.session_state.clustering.fit(X)
                     st.session_state.models_trained = True
                     st.success('Models trained successfully!')
@@ -165,7 +202,8 @@ def main():
                         st.write("Individual Model Predictions:")
                         for model_name, preds in predictions.items():
                             model_prediction = "High Risk" if preds[0] == 1 else "Low Risk"
-                            st.write(f"- {model_name.upper()}: {model_prediction}")
+                            model_prefix = "★ " if model_name == st.session_state.clustering.best_model else "  "
+                            st.write(f"{model_prefix}{model_name.upper()}: {model_prediction}")
                     
                     # Show prediction confidence
                     with col2:

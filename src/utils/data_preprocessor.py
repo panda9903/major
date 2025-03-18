@@ -12,6 +12,8 @@ class DataPreprocessor:
         """
         self.data_path = data_path
         self.scaler = StandardScaler()
+        self.train_indices = None
+        self.test_indices = None
         
     def load_data(self):
         """Load the data from CSV file."""
@@ -49,8 +51,30 @@ class DataPreprocessor:
             random_state (int): Random seed for reproducibility
             
         Returns:
-            tuple: (X_train, X_test) training and testing sets
+            tuple: (X_train, X_test, train_indices, test_indices)
         """
-        X_train, X_test = train_test_split(X, test_size=test_size, 
-                                         random_state=random_state)
-        return X_train, X_test 
+        # Split indices
+        indices = np.arange(len(X))
+        X_train, X_test, train_indices, test_indices = train_test_split(
+            X, indices, test_size=test_size, random_state=random_state
+        )
+        
+        # Store indices for later use
+        self.train_indices = train_indices
+        self.test_indices = test_indices
+        
+        return X_train, X_test, train_indices, test_indices
+    
+    def get_train_test_data(self):
+        """Get the training and testing data based on stored indices.
+        
+        Returns:
+            tuple: (train_data, test_data) DataFrames
+        """
+        if self.train_indices is None or self.test_indices is None:
+            raise ValueError("Data has not been split yet. Call split_data first.")
+        
+        train_data = self.data.iloc[self.train_indices]
+        test_data = self.data.iloc[self.test_indices]
+        
+        return train_data, test_data 
