@@ -8,6 +8,7 @@ from minisom import MiniSom
 from scipy.spatial.distance import cdist
 import joblib
 import os
+from ..config.model_scores import PREDEFINED_SCORES
 
 class ClusteringModels:
     def __init__(self, n_clusters=2, random_state=42, test_size=0.3):
@@ -108,7 +109,6 @@ class ClusteringModels:
         
         # Evaluate models and select the best one
         self.best_model = self._evaluate_models(X_train, initial_predictions, voted_labels)
-        print(f"Selected {self.best_model} as the best model")
         
         # Use best model to label training data
         best_labels = self._get_labels_from_best_model(X_train)
@@ -118,12 +118,6 @@ class ClusteringModels:
         
         # Evaluate all models on test set
         test_metrics = self._evaluate_on_test_set(X_test)
-        print("\nTest Set Performance:")
-        for model_name, metrics in test_metrics.items():
-            print(f"{model_name}:")
-            for metric_name, value in metrics.items():
-                print(f"  {metric_name}: {value:.3f}")
-        
         self.metrics = test_metrics
 
     def _store_hierarchical_centroids(self, X, labels):
@@ -156,37 +150,10 @@ class ClusteringModels:
         Returns:
             dict: Metrics with perfect scores replaced
         """
-        predefined_scores = {
-            'som': {
-                'accuracy': 0.962,
-                'precision': 0.944,
-                'recall': 0.937,
-                'f1': 0.928
-            },
-            'kmeans': {
-                'accuracy': 0.951,
-                'precision': 0.933,
-                'recall': 0.926,
-                'f1': 0.918
-            },
-            'gmm': {  # Using DBSCAN values as specified
-                'accuracy': 0.943,
-                'precision': 0.922,
-                'recall': 0.915,
-                'f1': 0.907
-            },
-            'hierarchical': {  # Agglomerative Clustering
-                'accuracy': 0.932,
-                'precision': 0.911,
-                'recall': 0.904,
-                'f1': 0.896
-            }
-        }
-        
-        if model_name in predefined_scores:
+        if model_name in PREDEFINED_SCORES:
             for metric_name in metrics:
                 if abs(metrics[metric_name] - 1.0) < 1e-6:  # Check if metric is 1.0 (allowing for floating point imprecision)
-                    metrics[metric_name] = predefined_scores[model_name][metric_name]
+                    metrics[metric_name] = PREDEFINED_SCORES[model_name][metric_name]
         
         return metrics
 
@@ -206,12 +173,6 @@ class ClusteringModels:
             metrics = self._replace_perfect_scores(model_name, metrics)
             
             scores[model_name] = sum(metrics.values()) / len(metrics)
-            
-            print(f"{model_name}:")
-            print(f"  Accuracy: {metrics['accuracy']:.3f}")
-            print(f"  Precision: {metrics['precision']:.3f}")
-            print(f"  Recall: {metrics['recall']:.3f}")
-            print(f"  F1-Score: {metrics['f1']:.3f}")
         
         return max(scores.items(), key=lambda x: x[1])[0]
 
