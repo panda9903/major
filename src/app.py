@@ -110,6 +110,60 @@ def plot_cluster_distributions(clustering_models, X, feature_names):
             )
             st.plotly_chart(fig)
 
+def analyze_cluster_ranges(clustering_models, X, feature_names, preprocessor):
+    """Analyze and display feature ranges for each cluster."""
+    st.subheader("Feature Ranges by Cluster")
+    
+    # Get predictions from the best model
+    best_model_labels = clustering_models._get_labels_from_best_model(X)
+    
+    # Calculate ranges for each feature in each cluster
+    cluster_ranges = {}
+    for cluster in range(2):
+        cluster_mask = best_model_labels == cluster
+        cluster_data = X[cluster_mask]
+        
+        # Convert standardized values back to original scale
+        cluster_data_original = preprocessor.scaler.inverse_transform(cluster_data)
+        
+        ranges = {}
+        for i, feature in enumerate(feature_names):
+            feature_data = cluster_data_original[:, i]
+            ranges[feature] = {
+                'min': feature_data.min(),
+                'max': feature_data.max(),
+                'mean': feature_data.mean(),
+                'std': feature_data.std()
+            }
+        cluster_ranges[f"Cluster {cluster}"] = ranges
+    
+    # Display ranges in a table
+    for cluster_name, ranges in cluster_ranges.items():
+        st.write(f"**{cluster_name} (High Risk)**" if cluster_name == "Cluster 1" else f"**{cluster_name} (Low Risk)**")
+        
+        # Create DataFrame for ranges
+        ranges_df = pd.DataFrame([
+            {
+                'Feature': feature,
+                'Min': f"{stats['min']:.2f}",
+                'Max': f"{stats['max']:.2f}",
+                'Mean': f"{stats['mean']:.2f}",
+                'Std Dev': f"{stats['std']:.2f}"
+            }
+            for feature, stats in ranges.items()
+        ])
+        
+        # Sort by standard deviation (higher std dev indicates more influence)
+        ranges_df = ranges_df.sort_values('Std Dev', ascending=False)
+        
+        st.table(ranges_df)
+        
+        # Add interpretation
+        st.write("**Key Indicators:**")
+        top_features = ranges_df.head(3)
+        for _, row in top_features.iterrows():
+            st.write(f"- {row['Feature']}: Mean = {row['Mean']} ± {row['Std Dev']}")
+
 def main():
     st.title('Cardiovascular Risk Prediction System')
     st.write('Analyzing ECG and PPG signals for cardiovascular risk assessment')
@@ -167,6 +221,7 @@ def main():
     if st.session_state.models_trained:
         display_model_metrics(st.session_state.clustering)
         plot_cluster_distributions(st.session_state.clustering, X, feature_names)
+        analyze_cluster_ranges(st.session_state.clustering, X, feature_names, preprocessor)
     
     # New Patient Classification Section
     st.header('New Patient Classification')
