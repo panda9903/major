@@ -12,7 +12,7 @@ from sklearn.cluster import KMeans
 @st.cache_resource
 def get_data():
     """Load and preprocess data once, then cache it."""
-    data_path = '../merged_bidmc_1s.csv'
+    data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'merged_bidmc_1s.csv')
     preprocessor = DataPreprocessor(data_path)
     data = preprocessor.load_data()
     X, feature_names = preprocessor.preprocess_signals()
