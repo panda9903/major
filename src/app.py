@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from utils.data_preprocessor import DataPreprocessor
 from models.clustering import ClusteringModels
+from models.supervised import SupervisedModels
 from visualization.visualizer import Visualizer
 import plotly.graph_objects as go
 import plotly.express as px
@@ -48,15 +49,25 @@ def create_input_form():
             
         return np.array([[ii, v, avr, pleth, hr, pulse, resp, spo2]])
 
-def display_model_metrics(clustering_models):
-    """Display clustering evaluation metrics."""
-    st.subheader("Model Evaluation Metrics")
+def display_model_metrics(model, model_type="clustering"):
+    """Display model evaluation metrics."""
+    st.subheader(f"{model_type.title()} Model Evaluation Metrics")
     
-    metrics_df = pd.DataFrame()
-    for model_name, metrics in clustering_models.metrics.items():
-        metrics_df[model_name] = pd.Series(metrics)
-    
-    st.table(metrics_df.round(3))
+    if model_type == "clustering":
+        metrics_df = pd.DataFrame()
+        for model_name, metrics in model.metrics.items():
+            metrics_df[model_name] = pd.Series(metrics)
+        st.table(metrics_df.round(3))
+    else:
+        metrics_df = pd.DataFrame()
+        for model_name, metrics in model.metrics.items():
+            metrics_df[model_name] = pd.Series({
+                'Accuracy': metrics['accuracy'],
+                'Precision': metrics['precision'],
+                'Recall': metrics['recall'],
+                'F1 Score': metrics['f1']
+            })
+        st.table(metrics_df.round(3))
 
 def plot_cluster_distributions(clustering_models, X, feature_names):
     """Plot cluster distributions for each model."""
@@ -93,6 +104,8 @@ def main():
     # Initialize session state
     if 'clustering' not in st.session_state:
         st.session_state.clustering = ClusteringModels()
+    if 'supervised' not in st.session_state:
+        st.session_state.supervised = SupervisedModels()
     if 'models_trained' not in st.session_state:
         st.session_state.models_trained = False
         
@@ -104,32 +117,52 @@ def main():
     
     # Training section
     st.header('Model Training')
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button('Train Models'):
+    
+    if st.button('Train All Models'):
+        try:
+            # Step 1: Train clustering models
             with st.spinner('Training clustering models...'):
-                try:
-                    st.session_state.clustering.fit(X)
-                    st.session_state.models_trained = True
-                    st.success('Models trained successfully!')
-                except Exception as e:
-                    st.error(f'Error during training: {str(e)}')
+                st.session_state.clustering.fit(X)
+                st.success('✅ Clustering models trained successfully!')
+            
+            # Step 2: Generate labels
+            with st.spinner('Generating labels from clustering...'):
+                predictions = st.session_state.clustering.predict(X)
+                labels = st.session_state.clustering.majority_vote(predictions)
+                st.success('✅ Labels generated successfully!')
+            
+            # Step 3: Train supervised models
+            with st.spinner('Training supervised models...'):
+                st.session_state.supervised.fit(X, labels)
+                st.session_state.models_trained = True
+                st.success('✅ Supervised models trained successfully!')
+            
+            st.success('🎉 All models trained successfully!')
+            
+        except Exception as e:
+            st.error(f'Error during training: {str(e)}')
     
-    with col2:
-        if st.button('Save Models'):
-            if st.session_state.models_trained:
-                try:
-                    st.session_state.clustering.save_models('models')
-                    st.success('Models saved successfully!')
-                except Exception as e:
-                    st.error(f'Error saving models: {str(e)}')
-            else:
-                st.error('Please train the models first.')
-    
-    # Display model metrics if models are trained
+    # Display metrics if models are trained
     if st.session_state.models_trained:
-        display_model_metrics(st.session_state.clustering)
+        display_model_metrics(st.session_state.clustering, "clustering")
         plot_cluster_distributions(st.session_state.clustering, X, feature_names)
+        display_model_metrics(st.session_state.supervised, "supervised")
+        
+        # Add confusion matrices visualization
+        st.header('Classification Confusion Matrices')
+        st.write("Confusion matrices show the performance of each model in terms of true positives, false positives, true negatives, and false negatives.")
+        
+        # Get predictions for all models
+        predictions = st.session_state.supervised.predict(st.session_state.supervised.X_test)
+        
+        # Create a grid of confusion matrices
+        for model_name, preds in predictions.items():
+            cm_fig = visualizer.plot_confusion_matrix(
+                st.session_state.supervised.y_test,
+                preds,
+                model_name.upper()
+            )
+            st.plotly_chart(cm_fig)
     
     # New Patient Classification Section
     st.header('New Patient Classification')
@@ -145,27 +178,19 @@ def main():
                     # Preprocess the new data point
                     new_data_scaled = preprocessor.scaler.transform(new_data)
                     
-                    # Get predictions from all models
-                    predictions = st.session_state.clustering.predict(new_data_scaled)
-                    
-                    # Get final prediction using majority voting
-                    final_prediction = st.session_state.clustering.majority_vote(predictions)
+                    # Get predictions from supervised models
+                    predictions = st.session_state.supervised.predict(new_data_scaled)
                     
                     # Display results
                     st.subheader('Classification Results')
                     
-                    # Show overall risk assessment
-                    risk_status = "High Risk" if final_prediction[0] == 1 else "Low Risk"
-                    risk_color = "🔴" if final_prediction[0] == 1 else "🟢"
-                    st.markdown(f"### Overall Risk Assessment: {risk_color} {risk_status}")
-                    
-                    # Show individual model predictions
+                    # Show predictions from each model
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write("Individual Model Predictions:")
+                        st.write("Model Predictions:")
                         for model_name, preds in predictions.items():
-                            model_prediction = "High Risk" if preds[0] == 1 else "Low Risk"
-                            st.write(f"- {model_name.upper()}: {model_prediction}")
+                            risk_status = "High Risk" if preds[0] == 1 else "Low Risk"
+                            st.write(f"- {model_name.upper()}: {risk_status}")
                     
                     # Show prediction confidence
                     with col2:

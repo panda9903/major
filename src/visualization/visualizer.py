@@ -5,6 +5,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
+from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
 
 class Visualizer:
     def __init__(self):
@@ -235,6 +236,137 @@ class Visualizer:
             xaxis_title=feature_names[0],
             yaxis_title=feature_names[1],
             showlegend=True
+        )
+        
+        return fig
+    
+    def plot_confusion_matrix(self, y_true, y_pred, model_name):
+        """Plot confusion matrix for a model.
+        
+        Args:
+            y_true (np.ndarray): True labels
+            y_pred (np.ndarray): Predicted labels
+            model_name (str): Name of the model
+            
+        Returns:
+            go.Figure: Plotly figure with confusion matrix
+        """
+        cm = confusion_matrix(y_true, y_pred)
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=cm,
+            x=['Low Risk', 'High Risk'],
+            y=['Low Risk', 'High Risk'],
+            text=cm,
+            texttemplate='%{text}',
+            textfont={"size": 16}
+        ))
+        
+        fig.update_layout(
+            title=f'Confusion Matrix - {model_name}',
+            xaxis_title='Predicted',
+            yaxis_title='Actual',
+            height=500
+        )
+        
+        return fig
+    
+    def plot_roc_curves(self, y_true, y_pred_proba_dict):
+        """Plot ROC curves for multiple models.
+        
+        Args:
+            y_true (np.ndarray): True labels
+            y_pred_proba_dict (dict): Dictionary of model names and their probability predictions
+            
+        Returns:
+            go.Figure: Plotly figure with ROC curves
+        """
+        fig = go.Figure()
+        
+        for model_name, y_pred_proba in y_pred_proba_dict.items():
+            fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
+            auc = roc_auc_score(y_true, y_pred_proba)
+            
+            fig.add_trace(go.Scatter(
+                x=fpr,
+                y=tpr,
+                name=f'{model_name} (AUC = {auc:.3f})',
+                mode='lines'
+            ))
+        
+        fig.add_trace(go.Scatter(
+            x=[0, 1],
+            y=[0, 1],
+            name='Random Classifier',
+            mode='lines',
+            line=dict(dash='dash')
+        ))
+        
+        fig.update_layout(
+            title='ROC Curves for Different Models',
+            xaxis_title='False Positive Rate',
+            yaxis_title='True Positive Rate',
+            height=600
+        )
+        
+        return fig
+    
+    def plot_feature_importance(self, model, feature_names):
+        """Plot feature importance for XGBoost model.
+        
+        Args:
+            model: Trained XGBoost model
+            feature_names (list): List of feature names
+            
+        Returns:
+            go.Figure: Plotly figure with feature importance
+        """
+        importance = model.feature_importances_
+        sorted_idx = np.argsort(importance)
+        
+        fig = go.Figure(go.Bar(
+            x=importance[sorted_idx],
+            y=[feature_names[i] for i in sorted_idx],
+            orientation='h'
+        ))
+        
+        fig.update_layout(
+            title='Feature Importance (XGBoost)',
+            xaxis_title='Importance Score',
+            yaxis_title='Feature',
+            height=max(400, len(feature_names) * 20)
+        )
+        
+        return fig
+    
+    def plot_model_comparison(self, metrics_dict):
+        """Plot comparison of model metrics.
+        
+        Args:
+            metrics_dict (dict): Dictionary of model names and their metrics
+            
+        Returns:
+            go.Figure: Plotly figure with model comparison
+        """
+        models = list(metrics_dict.keys())
+        metrics = ['accuracy', 'precision', 'recall', 'f1']
+        
+        fig = go.Figure()
+        
+        for metric in metrics:
+            values = [metrics_dict[model][metric] for model in models]
+            fig.add_trace(go.Bar(
+                name=metric.capitalize(),
+                x=models,
+                y=values
+            ))
+        
+        fig.update_layout(
+            title='Model Performance Comparison',
+            xaxis_title='Model',
+            yaxis_title='Score',
+            barmode='group',
+            height=500
         )
         
         return fig 
