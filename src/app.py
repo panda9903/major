@@ -141,30 +141,8 @@ def main():
             
         except Exception as e:
             st.error(f'Error during training: {str(e)}')
-    
-    # Display metrics if models are trained
-    if st.session_state.models_trained:
-        display_model_metrics(st.session_state.clustering, "clustering")
-        plot_cluster_distributions(st.session_state.clustering, X, feature_names)
-        display_model_metrics(st.session_state.supervised, "supervised")
-        
-        # Add confusion matrices visualization
-        st.header('Classification Confusion Matrices')
-        st.write("Confusion matrices show the performance of each model in terms of true positives, false positives, true negatives, and false negatives.")
-        
-        # Get predictions for all models
-        predictions = st.session_state.supervised.predict(st.session_state.supervised.X_test)
-        
-        # Create a grid of confusion matrices
-        for model_name, preds in predictions.items():
-            cm_fig = visualizer.plot_confusion_matrix(
-                st.session_state.supervised.y_test,
-                preds,
-                model_name.upper()
-            )
-            st.plotly_chart(cm_fig)
-    
-    # New Patient Classification Section
+
+    # Move Patient Classification section here
     st.header('New Patient Classification')
     if not st.session_state.models_trained:
         st.warning('Please train the models first before classifying new patients.')
@@ -200,6 +178,31 @@ def main():
                     
                 except Exception as e:
                     st.error(f'Error during classification: {str(e)}')
+
+    # Display metrics if models are trained
+    if st.session_state.models_trained:
+        # Show supervised metrics first
+        display_model_metrics(st.session_state.supervised, "supervised")
+        
+        # Then show clustering metrics and plots
+        display_model_metrics(st.session_state.clustering, "clustering")
+        plot_cluster_distributions(st.session_state.clustering, X, feature_names)
+        
+        # Add confusion matrices visualization
+        st.header('Classification Confusion Matrices')
+        st.write("Confusion matrices show the performance of each model in terms of true positives, false positives, true negatives, and false negatives.")
+        
+        # Get predictions for all models
+        predictions = st.session_state.supervised.predict(st.session_state.supervised.X_test)
+        
+        # Create a grid of confusion matrices
+        for model_name, preds in predictions.items():
+            cm_fig = visualizer.plot_confusion_matrix(
+                st.session_state.supervised.y_test,
+                preds,
+                model_name.upper()
+            )
+            st.plotly_chart(cm_fig)
     
     # Signal Visualization section
     st.header('Signal Visualization')
